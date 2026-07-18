@@ -34,8 +34,10 @@ async def _on_irc_part(_nick: str, channel: str) -> None:
         return
     print(f"[lobby] parted {channel}, bridge removed")
     discord_channel = bot.get_channel(lobby.discord_channel_id)
+
     if isinstance(discord_channel, discord.TextChannel):
         await discord_channel.send("Match closed")
+        await discord_channel.edit(name=f"closed-{discord_channel.name}")
 
 
 bot.irc = SessionManager(on_privmsg=_on_irc_privmsg, on_part=_on_irc_part)
@@ -77,7 +79,7 @@ async def on_message(message: discord.Message):
     session = bot.irc.get(lobby.owner_id)
     if session is None:
         return
-    await session.send_privmsg(lobby.irc_channel, message.content)
+    await session.send_privmsg(lobby.irc_channel, message.clean_content)
 
 
 @bot.tree.command(name="ping", description="pong!")
@@ -138,7 +140,7 @@ async def make(ctx: discord.Interaction, lobby_name: str):
     if not _is_allowed(ctx):
         return
 
-    await ctx.response.defer(ephemeral=True)
+    await ctx.response.defer(ephemeral=False)
 
     session = bot.irc.get(ctx.user.id)
     if session is None:
@@ -177,7 +179,7 @@ async def make(ctx: discord.Interaction, lobby_name: str):
     match_url = f"https://osu.ppy.sh/mp/{lobby_id}"
 
     try:
-        channel = await category.create_text_channel(f"mp-{lobby_id}")
+        channel = await category.create_text_channel(f"mp-{lobby_id}", topic=lobby_name)
     except Exception as exc:
         await ctx.followup.send(f"created match {match_url} but Discord channel failed: {exc}", ephemeral=True)
         return
@@ -203,10 +205,13 @@ async def make(ctx: discord.Interaction, lobby_name: str):
         )
     )
 
-    await ctx.channel.send(
+    await ctx.followup.send(
         f"lobby ready: {match_url}\nchannel: {channel.mention}",
         ephemeral=False,
     )
+
+    await channel.send(ctx.user.mention)
+    await session.send_privmsg(irc_channel, "!mp settings")
 
 
 bot.run(os.getenv("BOT_TOKEN"))
