@@ -7,6 +7,7 @@ import bottom
 
 BANCHO_HOST = "irc.ppy.sh"
 BANCHO_PORT = 6667
+PING_INTERVAL_S = 60
 
 OnStopped = Callable[[int], Awaitable[None] | None]
 
@@ -28,6 +29,7 @@ class IrcSession:
         self._on_stopped = on_stopped
         self._client = bottom.Client(host=BANCHO_HOST, port=BANCHO_PORT, ssl=False)
         self._task: asyncio.Task[None] | None = None
+        self._ping_task: asyncio.Task[None] | None = None
         self._stopping = False
         self._register_handlers()
 
@@ -39,6 +41,7 @@ class IrcSession:
             await client.send("pass", password=self.password)
             await client.send("nick", nick=self.nick)
             await client.send("user", nick=self.nick, realname=self.nick)
+            self._start_keepalive()
             print(f"[irc:{self.user_id}] connected as {self.nick}")
 
         @client.on("PRIVMSG")
@@ -60,11 +63,35 @@ class IrcSession:
 
         @client.on("CLIENT_DISCONNECT")
         async def on_disconnect(**_kwargs: object) -> None:
+            self._stop_keepalive()
             print(f"[irc:{self.user_id}] disconnected")
             if not self._stopping and self._on_stopped is not None:
                 result = self._on_stopped(self.user_id)
                 if asyncio.iscoroutine(result):
                     await result
+
+    def _start_keepalive(self) -> None:
+        self._stop_keepalive()
+        self._ping_task = asyncio.create_task(
+            self._keepalive(),
+            name=f"irc-ping-{self.user_id}",
+        )
+
+    def _stop_keepalive(self) -> None:
+        if self._ping_task is None:
+            return
+        self._ping_task.cancel()
+        self._ping_task = None
+
+    async def _keepalive(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(PING_INTERVAL_S)
+                await self._client.send("ping", message=self.nick)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[irc:{self.user_id}] ping error: {exc}")
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -82,9 +109,12 @@ class IrcSession:
         except Exception as exc:
             print(f"[irc:{self.user_id}] error: {exc}")
             await self._client.disconnect()
+        finally:
+            self._stop_keepalive()
 
     async def stop(self) -> None:
         self._stopping = True
+        self._stop_keepalive()
         await self._client.disconnect()
         if self._task is not None:
             self._task.cancel()
