@@ -97,6 +97,7 @@ async def connect(ctx: discord.Interaction):
     nick = nick.strip('"')
     password = password.strip('"')
 
+    await ctx.response.defer(ephemeral=True)
     try:
         await bot.irc.connect(ctx.user.id, nick, password)
     except RuntimeError as exc:
@@ -114,6 +115,7 @@ async def disconnect(ctx: discord.Interaction):
     if not _is_allowed(ctx):
         return
 
+    await ctx.response.defer(ephemeral=True)
     ok = await bot.irc.disconnect(ctx.user.id)
     if ok:
         await ctx.followup.send("disconnected", ephemeral=True)
