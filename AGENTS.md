@@ -1,2 +1,3 @@
-Use virtual environment when running Python commands:
-`.\.venv\Scripts\python.exe`
+- Use virtual environment when running Python commands: `.\.venv\Scripts\python.exe`
+- PowerShell does not support &&. Semicolons are required instead.
+- PowerShell does not support heredoc syntax. A PowerShell-compatible approach is needed for the commit message
