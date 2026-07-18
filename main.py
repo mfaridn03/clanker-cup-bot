@@ -76,7 +76,7 @@ async def on_message(message: discord.Message):
     lobby = bot.lobbies.get_by_discord(message.channel.id)
     if lobby is None:
         return
-    if message.author.id != lobby.owner_id:
+    if message.author.id != lobby.owner_id and message.author.id not in lobby.extra_refs:
         return
     if not message.content:
         return
@@ -89,6 +89,42 @@ async def on_message(message: discord.Message):
 @bot.tree.command(name="ping", description="pong!")
 async def ping(ctx: discord.Interaction):
     await ctx.response.send_message("pong!", ephemeral=True)
+
+
+@bot.tree.command(name="addref", description="add additional ref to the lobby")
+async def addref(ctx: discord.Interaction, member: discord.Member):
+    if not _is_allowed(ctx):
+        return
+
+    await ctx.response.defer(ephemeral=False)
+
+    lobby = bot.lobbies.get_by_discord(ctx.channel_id)
+    if lobby is None:
+        await ctx.followup.send("not a lobby channel", ephemeral=False)
+        return
+
+    session = bot.irc.get(ctx.user.id)
+    if session is None:
+        await ctx.followup.send("not connected - run /connect first", ephemeral=True)
+        return
+
+    if ctx.user.id != lobby.owner_id:
+        await ctx.followup.send("only the lobby owner can add refs", ephemeral=False)
+        return
+
+    if member.id == lobby.owner_id or member.id in lobby.extra_refs:
+        await ctx.followup.send(f"{member.mention} is already a ref on this lobby", ephemeral=False)
+        return
+
+    creds = await credentials.load(member.id)
+    if creds is None:
+        await ctx.followup.send(f"{member.mention} is not registered", ephemeral=False)
+        return
+
+    nick = creds["nick"].replace(" ", "_")
+    await session.send_privmsg(lobby.irc_channel, f"!mp addref {nick}")
+    lobby.extra_refs.append(member.id)
+    await ctx.followup.send(f"added {member.mention} as a ref", ephemeral=False)
 
 
 @bot.tree.command(name="register", description="store Bancho IRC credentials")

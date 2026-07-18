@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import discord
 
@@ -82,6 +82,7 @@ class Lobby:
     owner_id: int
     banchobot_webhook: RateLimitedWebhook
     other_webhook: RateLimitedWebhook
+    extra_refs: list[int] = field(default_factory=list)
 
     def enqueue_irc(self, nick: str, message: str) -> None:
         if nick.casefold() == "banchobot":
