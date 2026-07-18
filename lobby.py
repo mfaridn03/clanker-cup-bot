@@ -31,3 +31,10 @@ class LobbyManager:
     def remove(self, lobby: Lobby) -> None:
         self._by_discord.pop(lobby.discord_channel_id, None)
         self._by_irc.pop(lobby.irc_channel.casefold(), None)
+
+    def remove_by_irc(self, irc_channel: str) -> Lobby | None:
+        lobby = self._by_irc.pop(irc_channel.casefold(), None)
+        if lobby is None:
+            return None
+        self._by_discord.pop(lobby.discord_channel_id, None)
+        return lobby

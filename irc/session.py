@@ -11,6 +11,7 @@ PING_INTERVAL_S = 60
 
 OnStopped = Callable[[int], Awaitable[None] | None]
 OnPrivmsg = Callable[[str, str, str], Awaitable[None] | None]
+OnPart = Callable[[str, str], Awaitable[None] | None]
 PrivmsgPredicate = Callable[[str, str, str], bool]
 
 
@@ -25,12 +26,14 @@ class IrcSession:
         *,
         on_stopped: OnStopped | None = None,
         on_privmsg: OnPrivmsg | None = None,
+        on_part: OnPart | None = None,
     ) -> None:
         self.user_id = user_id
         self.nick = nick.replace(" ", "_")
         self.password = password
         self._on_stopped = on_stopped
         self._on_privmsg = on_privmsg
+        self._on_part = on_part
         self._client = bottom.Client(host=BANCHO_HOST, port=BANCHO_PORT, ssl=False)
         self._task: asyncio.Task[None] | None = None
         self._ping_task: asyncio.Task[None] | None = None
@@ -76,8 +79,14 @@ class IrcSession:
             return
 
         @client.on("PART")
-        async def on_part(**_kwargs: object) -> None:
-            return
+        async def on_part(nick: str = "", channel: str = "", **_kwargs: object) -> None:
+            print(f"[irc:{self.user_id}] PART {nick} {channel}")
+            if nick.casefold() != self.nick.casefold():
+                return
+            if self._on_part is not None:
+                result = self._on_part(nick, channel)
+                if asyncio.iscoroutine(result):
+                    await result
 
         @client.on("CLIENT_DISCONNECT")
         async def on_disconnect(**_kwargs: object) -> None:

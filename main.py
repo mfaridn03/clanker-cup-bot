@@ -30,10 +30,20 @@ async def _on_irc_privmsg(nick: str, target: str, message: str) -> None:
     channel = bot.get_channel(lobby.discord_channel_id)
     if not isinstance(channel, discord.TextChannel):
         return
-    await channel.send(message)
+    await channel.send(message, suppress_embeds=True)
 
 
-bot.irc = SessionManager(on_privmsg=_on_irc_privmsg)
+async def _on_irc_part(_nick: str, channel: str) -> None:
+    lobby = bot.lobbies.remove_by_irc(channel)
+    if lobby is None:
+        return
+    print(f"[lobby] parted {channel}, bridge removed")
+    discord_channel = bot.get_channel(lobby.discord_channel_id)
+    if isinstance(discord_channel, discord.TextChannel):
+        await discord_channel.send("Match closed")
+
+
+bot.irc = SessionManager(on_privmsg=_on_irc_privmsg, on_part=_on_irc_part)
 
 _original_close = bot.close
 
@@ -186,9 +196,9 @@ async def make(ctx: discord.Interaction, lobby_name: str):
         )
     )
 
-    await ctx.followup.send(
+    await ctx.channel.send(
         f"lobby ready: {match_url}\nchannel: {channel.mention}",
-        ephemeral=True,
+        ephemeral=False,
     )
 
 
