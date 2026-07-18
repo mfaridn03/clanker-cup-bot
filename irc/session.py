@@ -8,11 +8,52 @@ import bottom
 BANCHO_HOST = "irc.ppy.sh"
 BANCHO_PORT = 6667
 PING_INTERVAL_S = 60
+VERIFY_TIMEOUT_S = 10.0
 
 OnStopped = Callable[[int], Awaitable[None] | None]
 OnPrivmsg = Callable[[str, str, str], Awaitable[None] | None]
 OnPart = Callable[[str, str], Awaitable[None] | None]
 PrivmsgPredicate = Callable[[str, str, str], bool]
+
+
+async def verify_credentials(nick: str, password: str, *, timeout: float = VERIFY_TIMEOUT_S) -> None:
+    """Probe Bancho with nick/password, then disconnect. Raises on auth failure."""
+    nick = nick.replace(" ", "_")
+    client = bottom.Client(host=BANCHO_HOST, port=BANCHO_PORT, ssl=False)
+    outcome: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+
+    async def _catch_error(next_handler, _client, message: bytes):  # type: ignore[no-untyped-def]
+        text = message.decode(errors="replace")
+        if text.upper().startswith("ERROR") and not outcome.done():
+            detail = text.split(":", 1)[-1].strip() if ":" in text else text
+            outcome.set_exception(RuntimeError(detail or "authentication failed"))
+        await next_handler(_client, message)
+
+    client.message_handlers.insert(0, _catch_error)
+
+    @client.on("CLIENT_CONNECT")
+    async def on_connect(**_kwargs: object) -> None:
+        await client.send("pass", password=password)
+        await client.send("nick", nick=nick)
+        await client.send("user", nick=nick, realname=nick)
+
+    @client.on("RPL_WELCOME")
+    async def on_welcome(**_kwargs: object) -> None:
+        if not outcome.done():
+            outcome.set_result("ok")
+
+    @client.on("CLIENT_DISCONNECT")
+    async def on_disconnect(**_kwargs: object) -> None:
+        if not outcome.done():
+            outcome.set_exception(RuntimeError("check nick/password"))
+
+    try:
+        await client.connect()
+        await asyncio.wait_for(outcome, timeout)
+    except TimeoutError as exc:
+        raise RuntimeError("timed out waiting for Bancho auth") from exc
+    finally:
+        await client.disconnect()
 
 
 class IrcSession:

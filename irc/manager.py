@@ -25,9 +25,6 @@ class SessionManager:
     async def connect(self, user_id: int, nick: str, password: str) -> IrcSession:
         if user_id in self._sessions:
             raise RuntimeError("already connected")
-        # Shared DEV nick: Bancho allows one live connection per nick.
-        if self._sessions:
-            raise RuntimeError("dev nick already in use")
 
         session = IrcSession(
             user_id,
