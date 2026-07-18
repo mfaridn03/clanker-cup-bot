@@ -5,7 +5,9 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+import credentials
 from irc.manager import SessionManager
+from irc.session import verify_credentials
 from lobby import Lobby, LobbyManager, RateLimitedWebhook
 
 load_dotenv()
@@ -74,6 +76,8 @@ async def on_message(message: discord.Message):
     lobby = bot.lobbies.get_by_discord(message.channel.id)
     if lobby is None:
         return
+    if message.author.id != lobby.owner_id:
+        return
     if not message.content:
         return
     session = bot.irc.get(lobby.owner_id)
@@ -87,12 +91,20 @@ async def ping(ctx: discord.Interaction):
     await ctx.response.send_message("pong!", ephemeral=True)
 
 
-@bot.tree.command(name="register")
+@bot.tree.command(name="register", description="store Bancho IRC credentials")
 async def register(ctx: discord.Interaction, nick: str, irc_password: str):
     if not _is_allowed(ctx):
         return
 
-    await ctx.response.send_message("register cmd", ephemeral=True)
+    await ctx.response.defer(ephemeral=True)
+    try:
+        await verify_credentials(nick, irc_password)
+    except Exception as exc:
+        await ctx.followup.send(f"registration failed: {exc}", ephemeral=True)
+        return
+
+    await credentials.save(ctx.user.id, nick, irc_password)
+    await ctx.followup.send(f"registered as {nick.replace(' ', '_')}", ephemeral=True)
 
 
 @bot.tree.command(name="connect", description="connect to irc")
@@ -100,18 +112,14 @@ async def connect(ctx: discord.Interaction):
     if not _is_allowed(ctx):
         return
 
-    nick = os.getenv("DEV_NICK")
-    password = os.getenv("DEV_IRCPW")
-    if not nick or not password:
-        await ctx.response.send_message("missing DEV_NICK or DEV_IRCPW", ephemeral=True)
+    creds = await credentials.load(ctx.user.id)
+    if creds is None:
+        await ctx.response.send_message("not registered - run /register first", ephemeral=True)
         return
-
-    nick = nick.strip('"')
-    password = password.strip('"')
 
     await ctx.response.defer(ephemeral=True)
     try:
-        await bot.irc.connect(ctx.user.id, nick, password)
+        await bot.irc.connect(ctx.user.id, creds["nick"], creds["password"])
     except RuntimeError as exc:
         await ctx.followup.send(str(exc), ephemeral=True)
         return
@@ -119,7 +127,7 @@ async def connect(ctx: discord.Interaction):
         await ctx.followup.send(f"connect failed: {exc}", ephemeral=True)
         return
 
-    await ctx.followup.send(f"connected to Bancho as {nick}", ephemeral=True)
+    await ctx.followup.send(f"connected to Bancho as {creds['nick'].replace(' ', '_')}", ephemeral=True)
 
 
 @bot.tree.command(name="disconnect", description="disconnect from irc")
@@ -144,7 +152,7 @@ async def make(ctx: discord.Interaction, lobby_name: str):
 
     session = bot.irc.get(ctx.user.id)
     if session is None:
-        await ctx.followup.send("not connected — run /connect first", ephemeral=True)
+        await ctx.followup.send("not connected - run /connect first", ephemeral=True)
         return
 
     if ctx.guild is None:
