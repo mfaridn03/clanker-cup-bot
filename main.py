@@ -1,16 +1,21 @@
 import os
+import re
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
 from irc.manager import SessionManager
-from lobby import LobbyManager
+from lobby import Lobby, LobbyManager
 
 load_dotenv()
 
+LOBBY_CATEGORY_ID = 1527880192561774592
 ALLOWED_SERVER = 1527856371884884048
 STAFF_ROLE = 1527871437489045514
+CREATED_MATCH_RE = re.compile(
+    r"Created the tournament match https://osu\.ppy\.sh/mp/(\d+)"
+)
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 bot.lobbies = LobbyManager()
@@ -128,7 +133,63 @@ async def make(ctx: discord.Interaction, lobby_name: str):
     if not _is_allowed(ctx):
         return
 
-    # the rest
+    await ctx.response.defer(ephemeral=True)
+
+    session = bot.irc.get(ctx.user.id)
+    if session is None:
+        await ctx.followup.send("not connected — run /connect first", ephemeral=True)
+        return
+
+    if ctx.guild is None:
+        await ctx.followup.send("must be used in a server", ephemeral=True)
+        return
+
+    category = ctx.guild.get_channel(LOBBY_CATEGORY_ID)
+    if not isinstance(category, discord.CategoryChannel):
+        await ctx.followup.send("lobby category not found", ephemeral=True)
+        return
+
+    def _is_created(nick: str, _target: str, message: str) -> bool:
+        return nick.casefold() == "banchobot" and CREATED_MATCH_RE.search(message) is not None
+
+    try:
+        await session.send_privmsg("BanchoBot", f"!mp make {lobby_name}")
+        _nick, _target, reply = await session.wait_privmsg(_is_created, timeout=15.0)
+    except TimeoutError:
+        await ctx.followup.send("timed out waiting for BanchoBot", ephemeral=True)
+        return
+    except Exception as exc:
+        await ctx.followup.send(f"make failed: {exc}", ephemeral=True)
+        return
+
+    match = CREATED_MATCH_RE.search(reply)
+    if match is None:
+        await ctx.followup.send(f"unexpected BanchoBot reply: {reply}", ephemeral=True)
+        return
+
+    lobby_id = match.group(1)
+    irc_channel = f"#mp_{lobby_id}"
+    match_url = f"https://osu.ppy.sh/mp/{lobby_id}"
+
+    try:
+        channel = await category.create_text_channel(f"mp-{lobby_id}")
+    except Exception as exc:
+        await ctx.followup.send(f"created match {match_url} but Discord channel failed: {exc}", ephemeral=True)
+        return
+
+    bot.lobbies.add(
+        Lobby(
+            lobby_id=lobby_id,
+            irc_channel=irc_channel,
+            discord_channel_id=channel.id,
+            owner_id=ctx.user.id,
+        )
+    )
+
+    await ctx.followup.send(
+        f"lobby ready: {match_url}\nchannel: {channel.mention}",
+        ephemeral=True,
+    )
 
 
 bot.run(os.getenv("BOT_TOKEN"))
