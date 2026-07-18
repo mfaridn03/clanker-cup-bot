@@ -6,7 +6,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from irc.manager import SessionManager
-from lobby import Lobby, LobbyManager
+from lobby import Lobby, LobbyManager, RateLimitedWebhook
 
 load_dotenv()
 
@@ -22,15 +22,10 @@ bot.lobbies = LobbyManager()
 
 
 async def _on_irc_privmsg(nick: str, target: str, message: str) -> None:
-    if nick.casefold() != "banchobot":
-        return
     lobby = bot.lobbies.get_by_irc(target)
     if lobby is None:
         return
-    channel = bot.get_channel(lobby.discord_channel_id)
-    if not isinstance(channel, discord.TextChannel):
-        return
-    await channel.send(message, suppress_embeds=True)
+    lobby.enqueue_irc(nick, message)
 
 
 async def _on_irc_part(_nick: str, channel: str) -> None:
@@ -187,12 +182,24 @@ async def make(ctx: discord.Interaction, lobby_name: str):
         await ctx.followup.send(f"created match {match_url} but Discord channel failed: {exc}", ephemeral=True)
         return
 
+    try:
+        banchobot_hook = await channel.create_webhook(name="BanchoBot")
+        other_hook = await channel.create_webhook(name="IRC")
+    except Exception as exc:
+        await ctx.followup.send(
+            f"created match {match_url} and channel {channel.mention} but webhooks failed: {exc}",
+            ephemeral=True,
+        )
+        return
+
     bot.lobbies.add(
         Lobby(
             lobby_id=lobby_id,
             irc_channel=irc_channel,
             discord_channel_id=channel.id,
             owner_id=ctx.user.id,
+            banchobot_webhook=RateLimitedWebhook(banchobot_hook),
+            other_webhook=RateLimitedWebhook(other_hook),
         )
     )
 
