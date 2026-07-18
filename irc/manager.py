@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from irc.session import IrcSession
+from irc.session import IrcSession, OnPrivmsg
 
 
 class SessionManager:
     """Tracks concurrent IRC sessions keyed by Discord user id."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, on_privmsg: OnPrivmsg | None = None) -> None:
         self._sessions: dict[int, IrcSession] = {}
+        self._on_privmsg = on_privmsg
 
     def get(self, user_id: int) -> IrcSession | None:
         return self._sessions.get(user_id)
@@ -27,6 +28,7 @@ class SessionManager:
             nick,
             password,
             on_stopped=self._on_session_stopped,
+            on_privmsg=self._on_privmsg,
         )
         self._sessions[user_id] = session
         try:
