@@ -82,7 +82,10 @@ class Lobby:
     owner_id: int
     banchobot_webhook: RateLimitedWebhook
     other_webhook: RateLimitedWebhook
-    extra_refs: list[int] = field(default_factory=list)
+    refs: list[int] = field(default_factory=list)
+
+    def __post_init__(self):
+        self.refs.append(self.owner_id)
 
     def enqueue_irc(self, nick: str, message: str) -> None:
         if nick.casefold() == "banchobot":

@@ -76,7 +76,7 @@ async def on_message(message: discord.Message):
     lobby = bot.lobbies.get_by_discord(message.channel.id)
     if lobby is None:
         return
-    if message.author.id != lobby.owner_id and message.author.id not in lobby.extra_refs:
+    if message.author.id not in lobby.refs:
         return
     if not message.content:
         return
@@ -112,7 +112,7 @@ async def addref(ctx: discord.Interaction, member: discord.Member):
         await ctx.followup.send("only the lobby owner can add refs", ephemeral=False)
         return
 
-    if member.id == lobby.owner_id or member.id in lobby.extra_refs:
+    if member.id in lobby.refs:
         await ctx.followup.send(f"{member.mention} is already a ref on this lobby", ephemeral=False)
         return
 
@@ -123,7 +123,7 @@ async def addref(ctx: discord.Interaction, member: discord.Member):
 
     nick = creds["nick"].replace(" ", "_")
     await session.send_privmsg(lobby.irc_channel, f"!mp addref {nick}")
-    lobby.extra_refs.append(member.id)
+    lobby.refs.append(member.id)
     await ctx.followup.send(f"added {member.mention} as a ref", ephemeral=False)
 
 
